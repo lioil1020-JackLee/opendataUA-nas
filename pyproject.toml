@@ -1,0 +1,27 @@
+[project]
+name = "opendata-weather-ua"
+version = "0.1.0"
+description = "OpenData weather viewer with OPC UA server + Web UI"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "asyncua",
+    "pillow",
+    "pystray",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+]
+
+[dependency-groups]
+build = [
+    "pyinstaller",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["server*", "ui*", "webui*"]

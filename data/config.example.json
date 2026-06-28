@@ -1,0 +1,58 @@
+{
+    "openData": {
+        "address": "https://opendata.cwa.gov.tw/api/v1/rest/datastore/",
+        "api": "O-A0003-001",
+        "auth_key": "YOUR_CWA_AUTH_KEY",
+        "target": [
+            "466900",
+            "466920",
+            "467050",
+            "467571",
+            "467441"
+        ],
+        "stations": [
+            {
+                "id": "466900",
+                "name": "Station 466900"
+            },
+            {
+                "id": "466920",
+                "name": "Station 466920"
+            },
+            {
+                "id": "467050",
+                "name": "Station 467050"
+            },
+            {
+                "id": "467571",
+                "name": "Station 467571"
+            },
+            {
+                "id": "467441",
+                "name": "Station 467441"
+            }
+        ]
+    },
+    "opcUA": {
+        "url": "opc.tcp://0.0.0.0:48484",
+        "mirror_endpoints": [
+            {
+                "url": "opc.tcp://example.com:48484",
+                "name": "example",
+                "enabled": false
+            }
+        ],
+        "mirror_station_map": {
+            "466900": "W466900",
+            "466920": "W466920",
+            "467050": "W467050",
+            "467441": "W467441",
+            "467571": "W467571"
+        }
+    },
+    "intervals": {
+        "weather_fetch_seconds": 600,
+        "watchdog_check_seconds": 300,
+        "mirror_push_seconds": 60
+    }
+}
