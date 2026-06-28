@@ -1,123 +1,182 @@
 # OpenData Weather UA
 
-OpenData Weather UA 是一個桌面天氣監看工具，會讀取中央氣象署 OpenData 測站資料，並同步提供本機 OPC UA Server，方便用 SCADA、UAExpert 等 OPC UA Client 連線。
+OpenData Weather UA 是一個將中央氣象署 OpenData 即時觀測資料轉成 OPC UA 節點的 Python 專案，並提供 FastAPI Web UI 讓使用者管理設定、查看天氣資料、啟停 OPC UA Server 與即時查看日誌。
 
-## 專案分析
+專案目前主要面向 Synology NAS / Docker Compose 部署，也可以在一般 Python 3.12+ 環境中直接執行。
 
-- `main.py` 是入口，支援 `ui` 與 `server` 兩種模式；未帶參數時預設啟動桌面 UI。
-- `ui/desktop_ui.py` 提供 Tkinter 桌面介面，內含站點管理、系統匣最小化、設定編輯，以及背景啟動 OPC UA Server。
-- `server/opcua_server.py` 負責抓取 OpenData 測站資料、建立 OPC UA 節點，並定時更新數值。
-- `data/config.json` 是唯一的執行期設定檔。
-- 打包採用 PyInstaller，規格檔為 `OpendataUA-onedir.spec` 與 `OpendataUA-onefile.spec`。
+## 功能
 
-## 依賴管理
+- 從中央氣象署 OpenData API 讀取指定測站的即時氣象資料。
+- 建立 OPC UA Server，將每個測站資料發布成 OPC UA 變數節點。
+- 提供 Web UI 管理 `data/config.json`、啟動/停止 OPC UA Server、查看執行日誌。
+- Web UI 內建 watchdog，容器運行期間會自動檢查並重啟 OPC UA Server。
+- 支援將資料 mirror 寫入其他 OPC UA endpoint。
+- 提供 Dockerfile、docker-compose.yml、NAS 首次安裝與更新腳本。
 
-本專案已改為由 `uv` 完整管理依賴：
+## 專案結構
 
-- 執行期依賴定義於 `pyproject.toml`
-- 建置依賴定義於 `pyproject.toml` 的 `build` dependency group
-- 鎖定版本由 `uv.lock` 管理
-- CI/CD 與本機打包都使用 `uv sync` / `uv run`
+```text
+.
+├── main.py                     # 程式入口，預設啟動 Web UI
+├── server/
+│   └── opcua_server.py          # OpenData 擷取與 OPC UA Server
+├── webui/
+│   ├── app.py                   # FastAPI backend
+│   └── static/index.html        # Web UI 前端
+├── data/
+│   └── config.example.json      # 設定檔範本
+├── docs/
+│   ├── 更新容器.md
+│   └── 重建容器.md
+├── Dockerfile
+├── docker-compose.yml
+├── setup.sh                     # NAS 首次安裝腳本
+└── update.sh                    # NAS 更新腳本
+```
 
-## 環境需求
+## 需求
 
 - Python 3.12+
-- Windows 10/11 或 macOS
-- 已安裝 `uv`
+- Docker / Docker Compose（使用 NAS 或容器部署時）
+- 中央氣象署 OpenData API 授權碼
 
-## 安裝
+Python 套件依賴定義在 `pyproject.toml`：
 
-一般執行環境：
+- `asyncua`
+- `fastapi`
+- `uvicorn[standard]`
+- `python-multipart`
+- `pillow`
+- `pystray`
 
-```powershell
-uv sync --locked
+## 設定檔
+
+正式執行需要建立本機設定檔：
+
+```bash
+cp data/config.example.json data/config.json
 ```
 
-若需要打包：
+請編輯 `data/config.json`，至少設定：
 
-```powershell
-uv sync --locked --group build
+- `openData.address`：OpenData API base URL。
+- `openData.api`：資料集 ID，預設為 `O-A0003-001`。
+- `openData.auth_key`：中央氣象署 OpenData 授權碼。
+- `openData.stations`：要讀取的測站清單。
+- `opcUA.url`：本機 OPC UA Server endpoint，預設 `opc.tcp://0.0.0.0:48484`。
+- `opcUA.mirror_endpoints`：要同步寫入的遠端 OPC UA endpoint。
+- `opcUA.mirror_station_map`：本機測站 ID 與遠端測站節點名稱對應。
+- `intervals.weather_fetch_seconds`：天氣資料更新週期。
+- `intervals.mirror_push_seconds`：mirror 寫入週期。
+
+`data/config.json` 已加入 `.gitignore`，不要提交真實 API key 或內部 endpoint。版本庫只保留 `data/config.example.json`。
+
+## 本機執行
+
+安裝依賴：
+
+```bash
+pip install -e .
 ```
 
-## 執行
+或使用 `uv`：
 
-啟動桌面 UI：
-
-```powershell
-uv run python .\main.py
+```bash
+uv sync
 ```
 
-明確指定 UI 模式：
+啟動 Web UI 與 OPC UA Server 管理器：
 
-```powershell
-uv run python .\main.py ui
+```bash
+python main.py
 ```
 
-啟動時最小化到系統匣：
+等同於：
 
-```powershell
-uv run python .\main.py -min
+```bash
+python main.py web --host 0.0.0.0 --port 8188
 ```
 
 只啟動 OPC UA Server：
 
-```powershell
-uv run python .\main.py server
+```bash
+python main.py server --config data/config.json
 ```
 
-## 打包
+預設服務位址：
 
-Windows 或 macOS 的 PyInstaller 打包也由 `uv` 管理：
+- Web UI: `http://127.0.0.1:8188`
+- Health check: `http://127.0.0.1:8188/api/health`
+- OPC UA: `opc.tcp://127.0.0.1:48484`
 
-```powershell
-uv run --group build pyinstaller .\OpendataUA-onedir.spec
-uv run --group build pyinstaller .\OpendataUA-onefile.spec
+## Docker / NAS 部署
+
+先確認 `data/config.json` 已存在並填入有效設定。
+
+首次安裝：
+
+```bash
+chmod +x setup.sh update.sh
+./setup.sh
 ```
 
-如果環境已先執行過 `uv sync --locked --group build`，也可以使用：
+一般更新：
 
-```powershell
-uv run --locked --no-sync pyinstaller .\OpendataUA-onedir.spec
+```bash
+./update.sh
 ```
 
-## OPC UA 預設設定
+若 Dockerfile 或 Python dependency 有變更，重新 build：
 
-預設 endpoint 來自 `data/config.json`：
+```bash
+./update.sh --build
+```
+
+常用 Docker Compose 指令：
+
+```bash
+docker compose logs -f opendata-ua
+docker compose up -d --force-recreate opendata-ua
+docker compose down
+```
+
+`docker-compose.yml` 使用 host network，容器內服務預設使用：
+
+- Web UI port: `8188`
+- OPC UA port: `48484`
+
+## Web API
+
+Web UI backend 提供以下主要 API：
+
+- `GET /api/health`：健康檢查。
+- `GET /api/config`：讀取目前設定。
+- `PUT /api/config`：儲存設定。
+- `GET /api/weather`：依目前設定向 OpenData API 讀取測站資料。
+- `GET /api/server/status`：查詢 OPC UA Server 狀態。
+- `POST /api/server/start`：啟動 OPC UA Server。
+- `POST /api/server/stop`：停止 OPC UA Server。
+- `GET /api/logs`：以 Server-Sent Events 串流輸出日誌。
+
+## OPC UA 節點
+
+OPC UA Server 會在 `Weather` object 底下依測站 ID 建立節點，並發布以下欄位：
 
 ```text
-opc.tcp://127.0.0.1:48480
+24R, D_TN, D_TS, D_TX, ELEV, H_10D, H_F10, H_FX, H_UVI,
+H_XD, HUMD, PRES, TEMP, WDIR, WDSD, CITY, D_TNT, D_TXT,
+H_F10T, H_FXT, VIS, Weather
 ```
 
-使用 UAExpert 連線時可採用：
+這些欄位會由中央氣象署 OpenData response 轉換而來，並以字串寫入本機 OPC UA 節點；mirror 寫入遠端 OPC UA endpoint 時會依遠端節點型別嘗試轉型。
 
-- Security Mode: `None`
-- Security Policy: `None`
-- User: `Anonymous`
+## 注意事項
 
-## 設定檔
+- `data/config.json` 是本機執行設定，包含 API key 時不可提交。
+- Web UI 會把日誌寫入 `data/server.log`。
+- `main.py ui` 子命令目前會引用 `ui.desktop_ui`，但此 repository 目前沒有包含 `ui/` 目錄；建議使用 Web UI 或 server 模式。
+- 若在 Linux/NAS 上需要停止外部 OPC UA process，`webui.app` 會優先使用 `lsof` 查詢 port 對應 PID；沒有安裝 `lsof` 時只能判斷 port 是否開啟。
 
-`data/config.json` 主要欄位：
+## License
 
-- `openData.address`：OpenData API 基底網址
-- `openData.api`：資料集代碼，預設為 `O-A0003-001`
-- `openData.auth_key`：OpenData 授權金鑰
-- `openData.stations`：測站清單，格式為 `id` 與 `name`
-- `opcUA.url`：OPC UA endpoint
-- `opcUA.bind_ip`：伺服器綁定 IP，可選
-
-## 常見問題
-
-系統匣功能無法使用時：
-
-- 確認已安裝 `pystray` 與 `pillow`
-- 某些桌面環境可能不支援 tray icon，程式會退回一般視窗最小化行為
-
-OPC UA 無法連線時：
-
-- 確認 `data/config.json` 的 `opcUA.url` 格式正確
-- 確認對應埠號未被其他程式占用
-
-## 開發備註
-
-- 請以 `uv add`、`uv remove`、`uv lock` 維護依賴，不再使用 `requirements.txt`
-- 若有調整 `pyproject.toml`，請一併更新 `uv.lock`
+本專案使用 MIT License，詳見 `LICENSE`。
