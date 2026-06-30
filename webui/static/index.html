@@ -705,12 +705,12 @@ function connectSSE() {
 function appendLog(line) {
   const box = document.getElementById('log-box');
   const p = document.createElement('p');
-  if (line.startsWith('[SYS]')) p.className = 'sys';
-  else if (line.startsWith('[ERR]')) p.className = 'err';
+  if (line.includes('[SYS]')) p.className = 'sys';
+  else if (line.includes('[ERR]') || line.includes('[MIRROR] FAIL')) p.className = 'err';
   p.textContent = line;
-  box.appendChild(p);
-  if (box.children.length > 1500) box.removeChild(box.firstChild);
-  if (_autoScroll) box.scrollTop = box.scrollHeight;
+  box.insertBefore(p, box.firstChild);
+  if (box.children.length > 1500) box.removeChild(box.lastChild);
+  if (_autoScroll) box.scrollTop = 0;
 }
 
 function clearLogs() {

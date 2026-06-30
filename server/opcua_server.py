@@ -140,12 +140,15 @@ class _RemoteMirrorWriter:
         self._nodes: dict[str, dict[str, object]] = {}
         self._last_error: str = ""
 
-    def _report_error(self, message: str) -> None:
+    @property
+    def last_error(self) -> str:
+        return self._last_error
+
+    def _report_error(self, message: str) -> str:
         msg = str(message).strip()
-        if msg and msg != self._last_error:
+        if msg:
             self._last_error = msg
-            # intentionally silent: do not emit prints or logs in packaged exe
-            return
+        return self._last_error
 
     async def _disconnect(self) -> None:
         c = self._client
@@ -224,9 +227,10 @@ class _RemoteMirrorWriter:
 
         return text
 
-    async def write_values(self, values: dict[str, dict[str, str]]) -> None:
+    async def write_values(self, values: dict[str, dict[str, str]]) -> tuple[bool, str]:
         if not await self._connect_if_needed():
-            return
+            return False, self.last_error or "connect failed"
+        wrote_count = 0
         try:
             for sid, row in values.items():
                 if sid not in self._station_map:
@@ -249,13 +253,21 @@ class _RemoteMirrorWriter:
                             ServerPicoseconds=None,
                         )
                         await node.write_attribute(ua.AttributeIds.Value, dv)
+                        wrote_count += 1
                     except Exception as e:
                         self._report_error(f"write failed: sid={sid} tag={tag} err={e}")
                         await self._disconnect()
-                        return
+                        return False, self.last_error
         except Exception as e:
             self._report_error(f"write loop failed: {e}")
             await self._disconnect()
+            return False, self.last_error
+
+        if wrote_count <= 0:
+            self._report_error("no mapped values were written")
+            return False, self.last_error
+        self._last_error = ""
+        return True, f"written={wrote_count}"
 
     async def close(self) -> None:
         await self._disconnect()
@@ -438,8 +450,11 @@ _RemoteMirrorWriter(ep["url"], ep.get("name",""), mirror_station_map)
                 _log(f"[MIRROR] cycle={mirror_cycle} endpoints={mirror_count} interval={mirror_interval}s")
                 for m in mirrors:
                     try:
-                        await m.write_values(last_values)
-                        _log(f"[MIRROR] OK name={m.name} endpoint={m.endpoint}")
+                        ok, detail = await m.write_values(last_values)
+                        if ok:
+                            _log(f"[MIRROR] OK name={m.name} endpoint={m.endpoint} {detail}")
+                        else:
+                            _log(f"[MIRROR] FAIL name={m.name} endpoint={m.endpoint} error={detail}")
                     except Exception as e:
                         _log(f"[MIRROR] FAIL name={m.name} endpoint={m.endpoint} error={e}")
                 last_mirror_time = now

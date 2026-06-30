@@ -12,3 +12,6 @@ dist/
 .agents/
 .codex/
 data/config.json
+.env
+data/server.log
+*.ffs_db
